@@ -317,12 +317,11 @@ $form.Controls.Add($dataGridViewSelected)
 
 # Add columns to the second DataGridView
 $dataGridViewSelected.Columns.Add('PackageID', 'PackageID')
-$dataGridViewSelected.Columns.Add('Mode', 'Mode')
-$dataGridViewSelected.Columns.Add('Log', 'Log')
-$dataGridViewSelected.Columns.Add('AdditionalInstallArgs', 'Additional Args')
-$dataGridViewSelected.Columns.Add('Context', 'Context')
-$dataGridViewSelected.Columns.Add('Notification', 'Notification')
 $dataGridViewSelected.Columns.Add('GroupID', 'GroupID')
+$dataGridViewSelected.Columns.Add('InstallIntent', 'InstallIntent')
+$dataGridViewSelected.Columns.Add('Context', 'Context')
+$dataGridViewSelected.Columns.Add('AdditionalInstallArgs', 'Additional Args')
+$dataGridViewSelected.Columns.Add('Log', 'Log')
 
 # Set initial widths for columns in the DataGridViewSelected
 foreach ($column in $dataGridViewSelected.Columns) {
@@ -561,12 +560,12 @@ $importCSVButton.Add_Click({
             foreach ($row in $importedData) {
 $dataGridViewSelected.Rows.Add(
     $row.PackageID,
-    $row.Mode,
-    $row.Log,
-    $row.AdditionalInstallArgs,
+    $row.GroupID,
+    $row.InstallIntent,
     $row.Context,
-    $row.Notification,
-    $row.GroupID
+    $row.AdditionalInstallArgs,
+    $row.Log,
+    $row.Notification
                 )
             }
         }
@@ -594,7 +593,8 @@ $exportButton.Add_Click({
 
             # Check if required values are not null or empty
             if ($packageID -ne $null -and $packageID -ne '' -and
-                $context -ne $null -and $context -ne '') {
+                        $context -ne $null -and $context -ne '' -and
+                        $row.Cells['InstallIntent'].Value -in @('Required', 'Available')) {
                     # Create a hashtable representing the row data and add it to the selected data array
                     $rowData = [ordered]@{
                         'PackageID'                   = $packageID
@@ -958,12 +958,54 @@ $InTuneimportButton.Add_Click({
             # Process each selected package
             foreach ($row in $dataGridViewSelected.Rows) {
                 $packageID = $row.Cells['PackageID'].Value
-                $logFile = "$scriptRoot\Logs\$($packageID)-$timestamp.log"
-                $arguments = "-PackageID `"$packageID`" -Log `"$logFile`" -Context `"$($row.Cells['Context'].Value)`" -AdditionalInstallArgs `"$($row.Cells['AdditionalInstallArgs'].Value)`""
+                $logFile = if ([string]::IsNullOrEmpty($row.Cells['Log'].Value)) {
+                    "$scriptRoot\Logs\$($packageID)-$timestamp.log"
+                } else {
+                    $row.Cells['Log'].Value
+                }
+                
+                # Ensure log directory exists
+                $logDir = [System.IO.Path]::GetDirectoryName($logFile)
+                if (-not (Test-Path $logDir)) {
+                    New-Item -ItemType Directory -Path $logDir -Force | Out-Null
+                }
+                $arguments = "-PackageID `"$packageID`" -Log `"$logFile`" -Context `"$($row.Cells['Context'].Value)`" -AdditionalInstallArgs `"$($row.Cells['AdditionalInstallArgs'].Value)`" -InstallIntent `"$($row.Cells['InstallIntent'].Value)`""
                 
                 Write-ConsoleTextBox "Executing: Winget-InstallPackage.ps1 $arguments"
                 Start-Process powershell -ArgumentList '-NoProfile', '-ExecutionPolicy Bypass', "-File `"$importScriptPath`"", $arguments -Wait -NoNewWindow
                 Update-GUIFromLogFile -logFilePath "$logFile"
+
+                # Deploy to Intune with InstallIntent
+                $groupID = $row.Cells['GroupID'].Value
+                $installIntent = $row.Cells['InstallIntent'].Value
+                
+                if ($installIntent -in @('Required', 'Available') -and $groupID) {
+                    try {
+            Start-Process powershell -ArgumentList @(
+                '-NoProfile',
+                '-ExecutionPolicy',
+                'Bypass',
+                '-File',
+                "`"Winget-InstallPackage.ps1`"",
+                "-PackageID",
+                "`"$packageID`"",
+                "-Log",
+                "`"$logFile`"",
+                "-Context",
+                "`"$($row.Cells['Context'].Value)`"",
+                "-AdditionalInstallArgs",
+                "`"$($row.Cells['AdditionalInstallArgs'].Value)`"",
+                "-InstallIntent",
+                "`"$($row.Cells['InstallIntent'].Value)`"",
+                "-GroupID",
+                "`"$($row.Cells['GroupID'].Value)`""
+            ) -Wait -NoNewWindow
+            Write-ConsoleTextBox "Deployed $packageID using Winget-InstallPackage.ps1" -ForeGroundColor Green
+                    }
+                    catch {
+                        Write-ConsoleTextBox "Error deploying $packageID : $_" -ForeGroundColor Red
+                    }
+                }
             }
             Write-ConsoleTextBox "Arguments to be passed: $arguments"
             #Set-ExecutionPolicy Bypass -Scope Process -ExecutionPolicy Bypass -Force
