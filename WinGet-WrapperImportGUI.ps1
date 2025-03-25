@@ -317,19 +317,10 @@ $form.Controls.Add($dataGridViewSelected)
 
 # Add columns to the second DataGridView
 $dataGridViewSelected.Columns.Add('PackageID', 'PackageID')
+$dataGridViewSelected.Columns.Add('Mode', 'Mode')
+$dataGridViewSelected.Columns.Add('Log', 'Log')
+$dataGridViewSelected.Columns.Add('AdditionalInstallArgs', 'Additional Args')
 $dataGridViewSelected.Columns.Add('Context', 'Context')
-$dataGridViewSelected.Columns.Add('AcceptNewerVersion', 'AcceptNewerVersion')
-$dataGridViewSelected.Columns.Add('UpdateOnly', 'UpdateOnly')
-$dataGridViewSelected.Columns.Add('TargetVersion', 'TargetVersion')
-$dataGridViewSelected.Columns.Add('StopProcessInstall', 'StopProcessInstall')
-$dataGridViewSelected.Columns.Add('StopProcessUninstall', 'StopProcessUninstall')
-$dataGridViewSelected.Columns.Add('PreScriptInstall', 'PreScriptInstall')
-$dataGridViewSelected.Columns.Add('PostScriptInstall', 'PostScriptInstall')
-$dataGridViewSelected.Columns.Add('PreScriptUninstall', 'PreScriptUninstall')
-$dataGridViewSelected.Columns.Add('PostScriptUninstall', 'PostScriptUninstall')
-$dataGridViewSelected.Columns.Add('CustomArgumentListInstall', 'CustomArgumentListInstall')
-$dataGridViewSelected.Columns.Add('CustomArgumentListUninstall', 'CustomArgumentListUninstall')
-$dataGridViewSelected.Columns.Add('InstallIntent', 'InstallIntent')
 $dataGridViewSelected.Columns.Add('Notification', 'Notification')
 $dataGridViewSelected.Columns.Add('GroupID', 'GroupID')
 
@@ -568,23 +559,14 @@ $importCSVButton.Add_Click({
         
             # Add rows to $dataGridViewSelected from imported data
             foreach ($row in $importedData) {
-                $dataGridViewSelected.Rows.Add(
-                    $row.PackageID, 
-                    $row.Context, 
-                    $row.AcceptNewerVersion, 
-                    $row.UpdateOnly, 
-                    $row.TargetVersion, 
-                    $row.StopProcessInstall, 
-                    $row.StopProcessUninstall, 
-                    $row.PreScriptInstall, 
-                    $row.PostScriptInstall, 
-                    $row.PreScriptUninstall, 
-                    $row.PostScriptUninstall, 
-                    $row.CustomArgumentListInstall, 
-                    $row.CustomArgumentListUninstall, 
-                    $row.InstallIntent, 
-                    $row.Notification, 
-                    $row.GroupID
+$dataGridViewSelected.Rows.Add(
+    $row.PackageID,
+    $row.Mode,
+    $row.Log,
+    $row.AdditionalInstallArgs,
+    $row.Context,
+    $row.Notification,
+    $row.GroupID
                 )
             }
         }
@@ -610,27 +592,13 @@ $exportButton.Add_Click({
                 $acceptNewerVersion = $row.Cells['AcceptNewerVersion'].Value
                 $updateOnly = $row.Cells['UpdateOnly'].Value
 
-                # Check if all required values are not null or empty
-                if ($packageID -ne $null -and $packageID -ne '' -and
-                    $context -ne $null -and $context -ne '' -and
-                    $acceptNewerVersion -ne $null -and $acceptNewerVersion -ne '' -and
-                    $updateOnly -ne $null -and $updateOnly -ne '') {
+            # Check if required values are not null or empty
+            if ($packageID -ne $null -and $packageID -ne '' -and
+                $context -ne $null -and $context -ne '') {
                     # Create a hashtable representing the row data and add it to the selected data array
                     $rowData = [ordered]@{
                         'PackageID'                   = $packageID
                         'Context'                     = $context
-                        'AcceptNewerVersion'          = $acceptNewerVersion
-                        'UpdateOnly'                  = $updateOnly
-                        'TargetVersion'               = $row.Cells['TargetVersion'].Value
-                        'StopProcessInstall'          = $row.Cells['StopProcessInstall'].Value
-                        'StopProcessUninstall'        = $row.Cells['StopProcessUninstall'].Value
-                        'PreScriptInstall'            = $row.Cells['PreScriptInstall'].Value
-                        'PostScriptInstall'           = $row.Cells['PostScriptInstall'].Value
-                        'PreScriptUninstall'          = $row.Cells['PreScriptUninstall'].Value
-                        'PostScriptUninstall'         = $row.Cells['PostScriptUninstall'].Value
-                        'CustomArgumentListInstall'   = $row.Cells['CustomArgumentListInstall'].Value
-                        'CustomArgumentListUninstall' = $row.Cells['CustomArgumentListUninstall'].Value
-                        'InstallIntent'               = $row.Cells['InstallIntent'].Value
                         'Notification'                = $row.Cells['Notification'].Value
                         'GroupID'                     = $row.Cells['GroupID'].Value
                     }
@@ -896,11 +864,9 @@ $InTuneimportButton.Add_Click({
             return  # Stop further execution
         }
 
-        # List of files to check
+        # List of required files
         $filesToCheck = @(
-            'WinGet-Wrapper.ps1',
-            'WinGet-WrapperDetection.ps1',
-            'WinGet-WrapperRequirements.ps1',
+            'Winget-InstallPackage.ps1',
             'WinGet-WrapperImportFromCSV.ps1',
             'IntuneWinAppUtil.exe'
         )
@@ -989,7 +955,16 @@ $InTuneimportButton.Add_Click({
 
             #Run The Import Script
             # Define the arguments to be passed to the script
-            $arguments = "-csvFile `"$csvFilePath`" -TenantID $($tenantIDTextBox.Text) -ClientID $($clientIDTextBox.Text) -RedirectURL `"$($redirectURLTextBox.Text)`" -ScriptRoot `"$scriptRoot`" -SkipConfirmation -SkipModuleCheck"
+            # Process each selected package
+            foreach ($row in $dataGridViewSelected.Rows) {
+                $packageID = $row.Cells['PackageID'].Value
+                $logFile = "$scriptRoot\Logs\$($packageID)-$timestamp.log"
+                $arguments = "-PackageID `"$packageID`" -Log `"$logFile`" -Context `"$($row.Cells['Context'].Value)`" -AdditionalInstallArgs `"$($row.Cells['AdditionalInstallArgs'].Value)`""
+                
+                Write-ConsoleTextBox "Executing: Winget-InstallPackage.ps1 $arguments"
+                Start-Process powershell -ArgumentList '-NoProfile', '-ExecutionPolicy Bypass', "-File `"$importScriptPath`"", $arguments -Wait -NoNewWindow
+                Update-GUIFromLogFile -logFilePath "$logFile"
+            }
             Write-ConsoleTextBox "Arguments to be passed: $arguments"
             #Set-ExecutionPolicy Bypass -Scope Process -ExecutionPolicy Bypass -Force
             Start-Process powershell -ArgumentList '-NoProfile', '-ExecutionPolicy Bypass', "-File `"$importScriptPath`"", $arguments -Wait -NoNewWindow
